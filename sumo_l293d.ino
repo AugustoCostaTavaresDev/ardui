@@ -47,8 +47,9 @@ const uint8_t PINO_TRIG = A2;
 const uint8_t PINO_ECHO = A3;
 
 // Sensores IR — limiar individual.
-// brancoEhMenor = true  -> leitura ABAIXO do limiar = branco (maioria dos TCRT5000)
-// brancoEhMenor = false -> leitura ACIMA do limiar = branco
+// "branco" aqui = a cor que dispara a fuga (a BORDA da arena).
+// brancoEhMenor = true  -> leitura ABAIXO do limiar = borda (maioria dos TCRT5000)
+// brancoEhMenor = false -> leitura ACIMA do limiar = borda (ex.: borda preta, chão branco, limiar 60)
 struct SensorIR {
   uint8_t pino;
   int limiar;
@@ -59,9 +60,9 @@ struct SensorIR {
 
 SensorIR ir[3] = {
   // pino, limiar, brancoEhMenor, nome
-  { A1, 60, true, "F ", 1023, 0 },
-  { A4, 60, true, "BL", 1023, 0 },
-  { A5, 60, true, "BR", 1023, 0 },
+  { A1, 60, false, "F ", 1023, 0 },
+  { A4, 60, false, "BL", 1023, 0 },
+  { A5, 60, false, "BR", 1023, 0 },
 };
 enum { S_F = 0, S_BL = 1, S_BR = 2 };
 
