@@ -18,6 +18,19 @@
 
 // ======================= CONFIGURAÇÃO =======================
 
+// Declarado aqui no topo: o Arduino IDE gera protótipos de função automaticamente
+// e precisa enxergar o tipo Estado antes de qualquer função.
+enum Estado {
+  BUSCA_1,        // gira 90° pra um lado
+  BUSCA_2,        // volta 180° (fica 90° pro outro lado)
+  BUSCA_GIRO,     // 360 contínuo
+  BUSCA_AVANCA,   // anda um pouco e volta a girar
+  ATAQUE,
+  FUGA_RECUA,
+  FUGA_GIRA,
+  FUGA_FRENTE
+};
+
 #define MODO_CALIBRACAO 1   // 1 = só lê e imprime sensores | 0 = luta
 #define DEBUG_ESTADOS   0   // 1 = imprime troca de estado durante a luta
 
@@ -151,16 +164,6 @@ void loopCalibracao() {
 
 // ======================= LUTA =======================
 
-enum Estado {
-  BUSCA_1,        // gira 90° pra um lado
-  BUSCA_2,        // volta 180° (fica 90° pro outro lado)
-  BUSCA_GIRO,     // 360 contínuo
-  BUSCA_AVANCA,   // anda um pouco e volta a girar
-  ATAQUE,
-  FUGA_RECUA,
-  FUGA_GIRA,
-  FUGA_FRENTE
-};
 
 #if DEBUG_ESTADOS
 const char* NOMES[] = { "BUSCA_1", "BUSCA_2", "BUSCA_GIRO", "BUSCA_AVANCA",
