@@ -31,7 +31,7 @@ enum Estado {
   FUGA_FRENTE
 };
 
-#define MODO_CALIBRACAO 1   // 1 = só lê e imprime sensores | 0 = luta
+#define MODO_CALIBRACAO 0   // 1 = só lê e imprime sensores | 0 = luta
 #define DEBUG_ESTADOS   0   // 1 = imprime troca de estado durante a luta
 
 // Se o F_IR for sensor de OPONENTE (e não de linha), coloque 1.
@@ -39,8 +39,8 @@ enum Estado {
 #define F_IR_DETECTA_OPONENTE 0
 
 // Motores invertidos? true inverte o sentido daquele motor.
-const bool INVERTE_DIR = true;   // M3
-const bool INVERTE_ESQ = true;   // M2
+const bool INVERTE_DIR = false;   // M3
+const bool INVERTE_ESQ = false;   // M2
 
 // Pinos do ultrassônico
 const uint8_t PINO_TRIG = A2;
@@ -59,9 +59,9 @@ struct SensorIR {
 
 SensorIR ir[3] = {
   // pino, limiar, brancoEhMenor, nome
-  { A1, 500, true, "F ", 1023, 0 },
-  { A4, 500, true, "BL", 1023, 0 },
-  { A5, 500, true, "BR", 1023, 0 },
+  { A1, 60, true, "F ", 1023, 0 },
+  { A4, 60, true, "BL", 1023, 0 },
+  { A5, 60, true, "BR", 1023, 0 },
 };
 enum { S_F = 0, S_BL = 1, S_BR = 2 };
 
@@ -83,7 +83,7 @@ const unsigned long TEMPO_GIRO_MAX    = 2500; // giro contínuo antes de reposic
 const unsigned long TEMPO_AVANCA      = 300;  // avanço de reposição
 const unsigned long TEMPO_PERDA       = 300;  // segue empurrando se o ultrassom "piscar" no contato
 const unsigned long TEMPO_RECUO       = 300;  // ré ao ver borda na frente
-const unsigned long TEMPO_GIRO_FUGA   = 280;  // giro depois da ré (~135°)
+const unsigned long TEMPO_GIRO_FUGA   = TEMPO_90 * 2;  // giro de 180° depois da ré (usa a calibração do TEMPO_90)
 const unsigned long TEMPO_FRENTE_FUGA = 250;  // avanço ao ver borda atrás
 
 // ======================= HARDWARE =======================
@@ -273,7 +273,7 @@ void loopLuta() {
   switch (estado) {
     case ATAQUE:       mover(VEL_MAX, VEL_MAX);            break;
     case FUGA_RECUA:   mover(-VEL_MAX, -VEL_MAX);          break;
-    case FUGA_GIRA:    girar(sentidoFuga, VEL_MAX);        break;
+    case FUGA_GIRA:    girar(sentidoFuga, VEL_BUSCA);      break;  // mesma vel. do TEMPO_90 -> 180° certinho
     case FUGA_FRENTE:
       if (ladoFugaFrente < 0)      mover(VEL_MAX, VEL_CURVA);  // borda atrás-esq -> puxa pra direita
       else if (ladoFugaFrente > 0) mover(VEL_CURVA, VEL_MAX);  // borda atrás-dir -> puxa pra esquerda
