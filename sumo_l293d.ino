@@ -39,8 +39,8 @@ enum Estado {
 #define F_IR_DETECTA_OPONENTE 0
 
 // Motores invertidos? true inverte o sentido daquele motor.
-const bool INVERTE_DIR = false;   // M3
-const bool INVERTE_ESQ = false;   // M2
+const bool INVERTE_DIR = true;    // M3
+const bool INVERTE_ESQ = true;    // M2
 
 // Pinos do ultrassônico
 const uint8_t PINO_TRIG = A2;
