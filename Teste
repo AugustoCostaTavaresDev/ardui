@@ -1,0 +1,42 @@
+
+// TESTE IR - A4 e A5
+// Leitura analógica bruta, sem motores.
+
+const uint8_t PIN_IR_E = A4;
+const uint8_t PIN_IR_D = A5;
+
+const uint8_t N_AMOSTRAS = 8;
+const uint16_t PERIODO_MS = 50;
+
+uint16_t leSensor(uint8_t pino) {
+  analogRead(pino); // Descarta primeira leitura
+
+  uint32_t soma = 0;
+
+  for (uint8_t i = 0; i < N_AMOSTRAS; i++) {
+    soma += analogRead(pino);
+  }
+
+  return soma / N_AMOSTRAS;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("ms,IR_ESQ_A4,IR_DIR_A5");
+}
+
+void loop() {
+  static uint32_t tAnterior = 0;
+
+  if (millis() - tAnterior < PERIODO_MS) return;
+  tAnterior = millis();
+
+  uint16_t esquerdo = leSensor(PIN_IR_E);
+  uint16_t direito = leSensor(PIN_IR_D);
+
+  Serial.print(millis());
+  Serial.print(',');
+  Serial.print(esquerdo);
+  Serial.print(',');
+  Serial.println(direito);
+}
