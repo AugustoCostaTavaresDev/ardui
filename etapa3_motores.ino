@@ -1,8 +1,9 @@
-// ETAPA 3 - Controle dos motores (teste com RODAS LEVANTADAS)
+// ETAPA 3 - Controle dos motores
 // Esquerdo = M4, Direito = M2 (informado pelo usuario).
 // Usa a biblioteca "Adafruit Motor Shield library" (V1, AFMotor.h).
 // Nao usa os sensores. O mapa de pinos do shield so e considerado
 // confirmado depois que o teste passar.
+// Teste no chao: so com o caminho livre.
 
 #include <AFMotor.h>
 
@@ -19,6 +20,7 @@ AF_DCMotor mEsq(4, MOTOR34_1KHZ);   // esquerdo = M4
 AF_DCMotor mDir(2, MOTOR12_1KHZ);   // direito  = M2
 
 int8_t  sE = 0, sD = 0;             // sentido pedido: -1, 0, +1
+uint8_t gE = 100, gD = 100;         // ganho por motor, % (so reduz: 100 = sem correcao)
 uint8_t pct = 30;                   // velocidade, % do PWM_MAX
 int16_t atualE = 0, atualD = 0;     // PWM atual (com sinal), depois da rampa
 uint32_t tUltimoCmd = 0;
@@ -36,9 +38,16 @@ void aplica(AF_DCMotor &m, int16_t v, bool inverte) {
   m.run(frente ? FORWARD : BACKWARD);
 }
 
+void mostraGanho() {
+  Serial.print(F("ganho esq=")); Serial.print(gE);
+  Serial.print(F("%  dir="));    Serial.print(gD);
+  Serial.println('%');
+}
+
 void ajuda() {
   Serial.println(F("1/2 esq frente/tras | 3/4 dir frente/tras | 5/6 ambos frente/tras"));
-  Serial.println(F("7 gira p/ esquerda | 8 gira p/ direita | 0 para | + / - velocidade"));
+  Serial.println(F("7 gira p/ esquerda | 8 gira p/ direita | 0 para | + / - velocidade (5%)"));
+  Serial.println(F("Ganho: a/q = esq -2/+2 | d/e = dir -2/+2 (50 a 100%)"));
 }
 
 void setup() {
@@ -46,6 +55,7 @@ void setup() {
   aplica(mEsq, 0, false);
   aplica(mDir, 0, false);
   ajuda();
+  mostraGanho();
 }
 
 void loop() {
@@ -64,6 +74,10 @@ void loop() {
       case '0': sE =  0; sD =  0; break;
       case '+': if (pct < 100) pct += 5; break;
       case '-': if (pct > 5)   pct -= 5; break;
+      case 'a': if (gE > 50)  gE -= 2; mostraGanho(); break;
+      case 'q': if (gE < 100) gE += 2; mostraGanho(); break;
+      case 'd': if (gD > 50)  gD -= 2; mostraGanho(); break;
+      case 'e': if (gD < 100) gD += 2; mostraGanho(); break;
       default:  ok = false;  // ignora \n, \r e outros
     }
     if (ok) tUltimoCmd = millis();
@@ -75,9 +89,11 @@ void loop() {
   if (millis() - tAnterior < PERIODO_MS) return;
   tAnterior = millis();
 
-  int16_t base = (int16_t)pct * PWM_MAX / 100;
-  atualE = passoRampa(atualE, sE * base);
-  atualD = passoRampa(atualD, sD * base);
+  int16_t base  = (int16_t)pct * PWM_MAX / 100;
+  int16_t alvoE = (int16_t)((int32_t)base * gE / 100) * sE;
+  int16_t alvoD = (int16_t)((int32_t)base * gD / 100) * sD;
+  atualE = passoRampa(atualE, alvoE);
+  atualD = passoRampa(atualD, alvoD);
   aplica(mEsq, atualE, INVERTE_ESQ);
   aplica(mDir, atualD, INVERTE_DIR);
 
