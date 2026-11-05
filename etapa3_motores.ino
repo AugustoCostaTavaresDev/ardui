@@ -62,8 +62,8 @@ void loop() {
       case '7': sE = -1; sD =  1; break;
       case '8': sE =  1; sD = -1; break;
       case '0': sE =  0; sD =  0; break;
-      case '+': if (pct < 100) pct += 10; break;
-      case '-': if (pct > 10)  pct -= 10; break;
+      case '+': if (pct < 100) pct += 5; break;
+      case '-': if (pct > 5)   pct -= 5; break;
       default:  ok = false;  // ignora \n, \r e outros
     }
     if (ok) tUltimoCmd = millis();
