@@ -1,30 +1,20 @@
 // ETAPA 5 - Controle PD de direcao + motores
 // TESTE NO CHAO, EM BAIXA VELOCIDADE, COM O CABO USB E A MAO PERTO DO ROBO.
-//
-// Entradas: leitura e interpretacao da etapa 4 (brancura de cada sensor, diagnostico).
-// Saida: velocidade de cada motor, 0..100 (100 = PWM_MAX). Esta etapa NAO da re.
-//
-// Convencao: erro > 0 = branco a DIREITA -> virar a ESQUERDA (roda direita mais rapida).
-// Esta etapa trata aproximacoes laterais da borda. Qualquer situacao ambigua ou inconsistente
-// (so o central no branco, branco dos dois lados, tres no branco, sem calibracao) PARA o robo:
-// comportamento conservador. A recuperacao de verdade fica para a etapa 7.
-//
-// Comandos (Serial 115200; "Nova-linha" no monitor nao atrapalha):
-//   b = captura BRANCO    p = captura PRETO     (so com o robo parado)
-//   g = largar: espera 1 s e so larga se estiver calibrado e com os 3 sensores no preto
-//   x = parar
-//   1 / 2 = Kp -/+ 5     3 / 4 = Kd -/+ 0,5     5 / 6 = velocidade base -/+ 5
 
 #include <AFMotor.h>
 
+// Enum movido para o topo para evitar erros de compilação no Arduino IDE
+enum Diag { D_DESCONHECIDO, D_OK, D_BORDA_ESQ, D_BORDA_DIR, D_FRONTAL,
+            D_FRONTAL_ESQ, D_FRONTAL_DIR, D_INCONSISTENTE, D_FORA };
+
 // ---------- Pinos ----------
 const uint8_t PIN_E = A4;
-const uint8_t PIN_C = A0;   // o teste de 06/11 leu o central em A0 (nas etapas 2 e 3 era A1)
+const uint8_t PIN_C = A0;   // o teste de 06/11 leu o central em A0
 const uint8_t PIN_D = A5;
 const uint8_t PINOS[3] = { PIN_E, PIN_C, PIN_D };
 const char    NOMES[3] = { 'E', 'C', 'D' };
 
-// Posicao lateral de cada sensor (mm, modelo chassi_n20_v8.scad). O central (X = 0) nao da direcao.
+// Posicao lateral de cada sensor (mm). O central (X = 0) nao da direcao.
 const float POS_X[3] = { -19.2, 0.0, 19.2 };
 const float X_REF    = 19.2;
 float lado[3];                         // E = -1, C = 0, D = +1
@@ -47,10 +37,16 @@ const uint16_t T_ARMA_MS  = 1000;      // espera entre o comando g e a largada
 const uint32_t T_MAX_MS   = 10000;     // limite de duracao de uma corrida de teste
 const uint8_t  N_PARADA   = 3;         // ciclos seguidos em condicao de parada (30 ms)
 
-// ---------- Motores (esquerdo = M4, direito = M2) ----------
+// ---------- Motores ----------
 const uint8_t PWM_MAX     = 200;       // decisao do usuario
 const bool    INVERTE_ESQ = false;
 const bool    INVERTE_DIR = false;
+
+// COMPENSAÇÃO DE MOTORES (Ajuste aqui se um estiver mais lento)
+// Se o motor esquerdo estiver lento, aumente o valor dele (ex: 10, 15, 20)
+int OFFSET_ESQ = 0; 
+int OFFSET_DIR = 0; 
+
 AF_DCMotor mEsq(4, MOTOR34_1KHZ);
 AF_DCMotor mDir(2, MOTOR12_1KHZ);
 
@@ -110,9 +106,6 @@ void atualizaEstado(uint8_t i, int16_t w) {
   // entre os limiares: mantem o estado anterior
 }
 
-enum Diag : uint8_t { D_DESCONHECIDO, D_OK, D_BORDA_ESQ, D_BORDA_DIR, D_FRONTAL,
-                      D_FRONTAL_ESQ, D_FRONTAL_DIR, D_INCONSISTENTE, D_FORA };
-
 Diag classifica() {
   for (uint8_t i = 0; i < 3; i++) if (estado[i] == 255) return D_DESCONHECIDO;
   uint8_t m = (estado[0] == 0 ? 1 : 0) | (estado[1] == 0 ? 2 : 0) | (estado[2] == 0 ? 4 : 0);   // E=1 C=2 D=4
@@ -123,8 +116,8 @@ Diag classifica() {
     case 2: return D_FRONTAL;
     case 3: return D_FRONTAL_ESQ;
     case 6: return D_FRONTAL_DIR;
-    case 5: return D_INCONSISTENTE;   // branco nos dois lados e preto na frente
-    default: return D_FORA;           // os tres no branco
+    case 5: return D_INCONSISTENTE;
+    default: return D_FORA;
   }
 }
 
@@ -143,20 +136,28 @@ const __FlashStringHelper* nomeDiag(Diag d) {
 }
 
 // ---------- Motores ----------
-void setMotor(AF_DCMotor &m, float v, bool inverte) {
+void setMotor(AF_DCMotor &m, float v, bool inverte, int offset) {
   if (v > 100.0f) v = 100.0f;
   if (v <= 0.0f) { m.setSpeed(0); m.run(RELEASE); return; }   // sem re nesta etapa
-  m.setSpeed((uint8_t)(v * PWM_MAX / 100.0f));
+  
+  // Calcula o PWM e adiciona a compensação
+  int pwm_final = (int)(v * PWM_MAX / 100.0f) + offset;
+  
+  // Trava o PWM para não estourar o limite do motor
+  if (pwm_final > 255) pwm_final = 255;
+  if (pwm_final < 0) pwm_final = 0;
+
+  m.setSpeed((uint8_t)pwm_final);
   m.run(inverte ? BACKWARD : FORWARD);
 }
 
 void setMotores(float vE, float vD) {
-  setMotor(mEsq, vE, INVERTE_ESQ);
-  setMotor(mDir, vD, INVERTE_DIR);
+  setMotor(mEsq, vE, INVERTE_ESQ, OFFSET_ESQ);
+  setMotor(mDir, vD, INVERTE_DIR, OFFSET_DIR);
 }
 
 // ---------- Estado do controle ----------
-enum Ctl : uint8_t { PARADO, ARMADO, RODANDO };
+enum Ctl { PARADO, ARMADO, RODANDO };
 Ctl ctl = PARADO;
 uint32_t tArma = 0, tInicio = 0, maxCiclo = 0;
 uint16_t atrasos = 0;
@@ -177,7 +178,9 @@ void parar(const __FlashStringHelper* motivo) {
 void mostraParametros() {
   Serial.print(F("kp=")); Serial.print(kp, 1);
   Serial.print(F("  kd=")); Serial.print(kd, 1);
-  Serial.print(F("  vBase=")); Serial.println(vBase, 0);
+  Serial.print(F("  vBase=")); Serial.print(vBase, 0);
+  Serial.print(F("  OffsetEsq=")); Serial.print(OFFSET_ESQ);
+  Serial.print(F("  OffsetDir=")); Serial.println(OFFSET_DIR);
 }
 
 void iniciar() {
