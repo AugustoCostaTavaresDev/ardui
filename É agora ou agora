@@ -10,7 +10,11 @@ const uint8_t PIN_START = A3;
 const uint8_t PINOS[3] = { PIN_E, PIN_C, PIN_D };
 const uint8_t LED_PLACA = 13;
 
+const uint8_t PIN_TRIG = A2;
+const uint8_t PIN_ECHO = A1;
+
 const int LIMIAR_MAO = 600; 
+const int DIST_MINIMA = 15;
 
 const float POS_X[3] = { -19.2, 0.0, 19.2 };
 const float X_REF    = 19.2;
@@ -46,6 +50,17 @@ AF_DCMotor mEsq(4, MOTOR34_1KHZ);
 AF_DCMotor mDir(2, MOTOR12_1KHZ);
 
 uint8_t estado[3] = { 255, 255, 255 }; 
+
+float lerDistancia() {
+  digitalWrite(PIN_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_TRIG, LOW);
+  long duracao = pulseIn(PIN_ECHO, HIGH, 3000);
+  if (duracao == 0) return 999;
+  return duracao * 0.034 / 2;
+}
 
 uint16_t leSensor(uint8_t pino) {
   analogRead(pino);   
@@ -106,7 +121,7 @@ void setMotores(float vE, float vD) {
   setMotor(mDir, vD, INVERTE_DIR, OFFSET_DIR);
 }
 
-enum Ctl { PARADO, ARMADO, RODANDO, RE_DANDO, GIRANDO_BUSCA };
+enum Ctl { PARADO, ARMADO, RODANDO, RE_DANDO, PAUSA_RE, GIRANDO_BUSCA };
 Ctl ctl = PARADO;
 uint32_t tArma = 0, tInicio = 0, t_recuperacao = 0;
 float vb = 0, eAnt = 0, dFilt = 0;
@@ -117,12 +132,13 @@ uint32_t t_sem_borda = 0;
 float vAlvo = V_CURVA;
 
 int direcao_giro = 1; 
-bool primeira_batida = true; 
-const int DIRECAO_INICIAL = -1; 
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PLACA, OUTPUT);
+  pinMode(PIN_TRIG, OUTPUT);
+  pinMode(PIN_ECHO, INPUT);
+  
   for (uint8_t i = 0; i < 3; i++) lado[i] = POS_X[i] / X_REF;
   setMotores(0, 0);
   
@@ -184,19 +200,25 @@ void loop() {
       digitalWrite(LED_PLACA, LOW); 
       vb = 0; eAnt = e; dFilt = 0; contParada = 0;
       t_sem_borda = millis();
-      primeira_batida = true; 
     }
   }
 
   if (ctl == RE_DANDO) {
       setMotores(-50, -50); 
       if (millis() - t_recuperacao > 500) {
-          setMotores(0, 0); 
-          delay(100); 
-          ctl = GIRANDO_BUSCA;
+          ctl = PAUSA_RE;
           t_recuperacao = millis();
       }
       return; 
+  }
+
+  if (ctl == PAUSA_RE) {
+      setMotores(0, 0); 
+      if (millis() - t_recuperacao > 100) {
+          ctl = GIRANDO_BUSCA;
+          t_recuperacao = millis();
+      }
+      return;
   }
 
   if (ctl == GIRANDO_BUSCA) {
@@ -219,18 +241,16 @@ void loop() {
   }
 
   if (ctl == RODANDO) {
-    if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR) {
+    float distancia = lerDistancia();
+    
+    if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR || (distancia < DIST_MINIMA)) {
         ctl = RE_DANDO;
         t_recuperacao = millis();
         
-        if (primeira_batida) {
-            direcao_giro = DIRECAO_INICIAL; 
-            primeira_batida = false;
-        } else {
-            if (eAnt > 0.05f) direcao_giro = 1;  
-            else if (eAnt < -0.05f) direcao_giro = -1; 
-            else direcao_giro = (direcao_giro == 1) ? -1 : 1; 
-        }
+        if (eAnt > 0.05f) direcao_giro = 1;  
+        else if (eAnt < -0.05f) direcao_giro = -1; 
+        else direcao_giro = 1; 
+        
         return;
     }
 
