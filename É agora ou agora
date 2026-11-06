@@ -3,7 +3,6 @@
 enum Diag { D_DESCONHECIDO, D_OK, D_BORDA_ESQ, D_BORDA_DIR, D_FRONTAL,
             D_FRONTAL_ESQ, D_FRONTAL_DIR, D_INCONSISTENTE, D_FORA };
 
-// ---------- Pinos ----------
 const uint8_t PIN_E = A4;
 const uint8_t PIN_C = A0;   
 const uint8_t PIN_D = A5;
@@ -17,30 +16,26 @@ const float POS_X[3] = { -19.2, 0.0, 19.2 };
 const float X_REF    = 19.2;
 float lado[3];
 
-// ---------- Interpretacao ----------
 const int16_t  W_BRANCO   = 650;
 const int16_t  W_PRETO    = 350;
 const uint16_t SPAN_MIN   = 60;
 const uint8_t  N_AMOSTRAS = 8;
 
-// ---------- CALIBRAÇÃO FIXA ----------
 uint16_t branco[3] = { 32, 28, 52 };
 uint16_t preto[3]  = { 340, 317, 239 };
 bool temBranco = true; 
 bool temPreto = true;
 
-// ---------- Controle ----------
 float kp = 40.0f;                      
 float kd = 1.5f;                       
-float V_RETA = 100.0f;                 // Conforme solicitado (motor fraco)
-float V_CURVA = 100.0f;                // Conforme solicitado (se passar reto, abaixe para 70)
+float V_RETA = 100.0f;                 
+float V_CURVA = 100.0f;                
 const float V_RAMPA = 120.0f;          
 const float ALFA_D = 0.3f;             
 const uint32_t PERIODO_US = 10000;     
 const uint16_t T_ARMA_MS = 1000;       
 const uint8_t  N_PARADA = 3;           
 
-// ---------- Motores ----------
 const uint8_t PWM_MAX     = 200;       
 const bool    INVERTE_ESQ = false;
 const bool    INVERTE_DIR = false;
@@ -121,10 +116,9 @@ Diag ultDiag = D_DESCONHECIDO;
 uint32_t t_sem_borda = 0;
 float vAlvo = V_CURVA;
 
-// --- VARIÁVEIS DE MEMÓRIA DE BATIDA ---
 int direcao_giro = 1; 
 bool primeira_batida = true; 
-const int DIRECAO_INICIAL = -1; // -1 = Direita, 1 = Esquerda
+const int DIRECAO_INICIAL = -1; 
 
 void setup() {
   Serial.begin(115200);
@@ -172,7 +166,6 @@ void loop() {
   ultValido = valido;
   ultDiag = d;
 
-  // --- MÁQUINA DE ESTADOS ---
   if (ctl == PARADO && mao_presente) {
       if (ultValido && ultDiag == D_OK) {
           ctl = ARMADO;
@@ -195,11 +188,10 @@ void loop() {
     }
   }
 
-  // --- LÓGICA DE RECUPERAÇÃO ---
   if (ctl == RE_DANDO) {
-      setMotores(-50, -50); // Dá ré reto
+      setMotores(-50, -50); 
       if (millis() - t_recuperacao > 500) {
-          setMotores(0, 0); // Dá um mini freio para parar a inércia
+          setMotores(0, 0); 
           delay(100); 
           ctl = GIRANDO_BUSCA;
           t_recuperacao = millis();
@@ -208,30 +200,24 @@ void loop() {
   }
 
   if (ctl == GIRANDO_BUSCA) {
-      // FAZENDO A CURVA DE 90 GRAUS BONITA (Uma roda devagar, outra rápida)
       if (direcao_giro == 1) { 
-          setMotores(15, 90);  // Curva pra Esquerda
-          // Para quando o Central (C) e o Direito (D) acharem o preto
+          setMotores(15, 90);  
           if ((w[1] <= W_PRETO && w[2] <= W_PRETO) || (millis() - t_recuperacao > 1500)) {
               ctl = RODANDO;
               vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
               t_sem_borda = millis();
-              Serial.println(F("Recuperado!"));
           }
       } else {
-          setMotores(90, 15);  // Curva pra Direita
-          // Para quando o Central (C) e o Esquerdo (E) acharem o preto
+          setMotores(90, 15);  
           if ((w[1] <= W_PRETO && w[0] <= W_PRETO) || (millis() - t_recuperacao > 1500)) {
               ctl = RODANDO;
               vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
               t_sem_borda = millis();
-              Serial.println(F("Recuperado!"));
           }
       }
       return;
   }
 
-  // --- MODO DE CORRIDA NORMAL ---
   if (ctl == RODANDO) {
     if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR) {
         ctl = RE_DANDO;
