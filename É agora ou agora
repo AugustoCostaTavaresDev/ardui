@@ -9,7 +9,6 @@ const uint8_t PIN_C = A0;
 const uint8_t PIN_D = A5;
 const uint8_t PIN_START = A3; 
 const uint8_t PINOS[3] = { PIN_E, PIN_C, PIN_D };
-const char    NOMES[3] = { 'E', 'C', 'D' };
 const uint8_t LED_PLACA = 13;
 
 const int LIMIAR_MAO = 600; 
@@ -33,7 +32,7 @@ bool temPreto = true;
 // ---------- Controle ----------
 float kp = 40.0f;                      
 float kd = 1.5f;                       
-float V_RETA = 85.0f;                  // <--- VELOCIDADE DA RETA AQUI
+float V_RETA = 85.0f;                  // Velocidade da reta
 float V_CURVA = 45.0f;                 
 const float V_RAMPA = 120.0f;          
 const float ALFA_D = 0.3f;             
@@ -122,7 +121,11 @@ bool ultValido = false;
 Diag ultDiag = D_DESCONHECIDO;
 uint32_t t_sem_borda = 0;
 float vAlvo = V_CURVA;
-int direcao_giro = 1; // 1 = esquerda, -1 = direita
+
+// --- VARIÁVEIS DE MEMÓRIA DE BATIDA ---
+int direcao_giro = 1; 
+bool primeira_batida = true; // Flag para saber se é a primeira batida
+const int DIRECAO_INICIAL = -1; // -1 = Direita, 1 = Esquerda. Mude se quiser que a primeira seja à esquerda.
 
 void setup() {
   Serial.begin(115200);
@@ -191,6 +194,7 @@ void loop() {
       digitalWrite(LED_PLACA, LOW); 
       vb = 0; eAnt = e; dFilt = 0; contParada = 0;
       t_sem_borda = millis();
+      primeira_batida = true; // Reseta a memória para a nova corrida
       Serial.println(F("LARGOU!"));
     }
   }
@@ -208,21 +212,17 @@ void loop() {
   if (ctl == GIRANDO_BUSCA) {
       if (direcao_giro == 1) { 
           setMotores(-45, 45);  // Gira pra Esquerda
-          // Para quando o sensor DIREITO (D) achar a linha
           if (w[2] <= W_PRETO || (millis() - t_recuperacao > 1500)) {
               ctl = RODANDO;
               vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
               t_sem_borda = millis();
-              Serial.println(F("Recuperado!"));
           }
       } else {
           setMotores(45, -45);  // Gira pra Direita
-          // Para quando o sensor ESQUERDO (E) achar a linha
           if (w[0] <= W_PRETO || (millis() - t_recuperacao > 1500)) {
               ctl = RODANDO;
               vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
               t_sem_borda = millis();
-              Serial.println(F("Recuperado!"));
           }
       }
       return;
@@ -230,18 +230,28 @@ void loop() {
 
   // --- MODO DE CORRIDA NORMAL ---
   if (ctl == RODANDO) {
+    // Detecta a batida
     if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR) {
         ctl = RE_DANDO;
         t_recuperacao = millis();
         
-        if (w[0] < w[2]) {
-            direcao_giro = 1; // Buscar pela esquerda
-        } else if (w[2] < w[0]) {
-            direcao_giro = -1; // Buscar pela direita
+        // LÓGICA DE CACHE DA BATIDA
+        if (primeira_batida) {
+            direcao_giro = DIRECAO_INICIAL; // Força ir para o lado definido
+            primeira_batida = false;
+            Serial.println(F("BATEU! (Primeira vez - Indo pro lado fixo)"));
         } else {
-            direcao_giro = (eAnt > 0) ? 1 : -1;
+            // Se já bateu antes, usa a orientação para decidir
+            if (eAnt > 0.05f) {
+                direcao_giro = 1;  // Estava indo pra direita e bateu -> desvia pra esquerda
+            } else if (eAnt < -0.05f) {
+                direcao_giro = -1; // Estava indo pra esquerda e bateu -> desvia pra direita
+            } else {
+                // Bateu de cara reto (erro zero), inverte a última direção usada
+                direcao_giro = (direcao_giro == 1) ? -1 : 1; 
+            }
+            Serial.println(F("BATEU! (Usando cache de orientacao)"));
         }
-        Serial.println(F("BATEU!"));
         return;
     }
 
