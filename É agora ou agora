@@ -18,11 +18,13 @@ const float POS_X[3] = { -19.2, 0.0, 19.2 };
 const float X_REF    = 19.2;
 float lado[3];
 
+// ---------- Interpretacao ----------
 const int16_t  W_BRANCO   = 650;
 const int16_t  W_PRETO    = 350;
 const uint16_t SPAN_MIN   = 60;
 const uint8_t  N_AMOSTRAS = 8;
 
+// ---------- CALIBRAÇÃO FIXA ----------
 uint16_t branco[3] = { 32, 28, 52 };
 uint16_t preto[3]  = { 340, 317, 239 };
 bool temBranco = true; 
@@ -31,7 +33,7 @@ bool temPreto = true;
 // ---------- Controle ----------
 float kp = 40.0f;                      
 float kd = 1.5f;                       
-float V_RETA = 85.0f;                  
+float V_RETA = 85.0f;                  // <--- VELOCIDADE DA RETA AQUI
 float V_CURVA = 45.0f;                 
 const float V_RAMPA = 120.0f;          
 const float ALFA_D = 0.3f;             
@@ -127,10 +129,12 @@ void setup() {
   pinMode(LED_PLACA, OUTPUT);
   for (uint8_t i = 0; i < 3; i++) lado[i] = POS_X[i] / X_REF;
   setMotores(0, 0);
+  
   for(int i=0; i<3; i++){
     digitalWrite(LED_PLACA, HIGH); delay(200);
     digitalWrite(LED_PLACA, LOW); delay(200);
   }
+  Serial.println(F("ROBO PRONTO. Passe a mao no A3."));
 }
 
 void loop() {
@@ -173,6 +177,7 @@ void loop() {
           ctl = ARMADO;
           tArma = millis();
           digitalWrite(LED_PLACA, HIGH); 
+          Serial.println(F("ARMADO! Tire a mao."));
       } else {
           digitalWrite(LED_PLACA, !digitalRead(LED_PLACA));
           delay(50);
@@ -186,13 +191,14 @@ void loop() {
       digitalWrite(LED_PLACA, LOW); 
       vb = 0; eAnt = e; dFilt = 0; contParada = 0;
       t_sem_borda = millis();
+      Serial.println(F("LARGOU!"));
     }
   }
 
-  // --- LÓGICA DE RECUPERAÇÃO EM 2 FASES ---
+  // --- LÓGICA DE RECUPERAÇÃO ---
   if (ctl == RE_DANDO) {
-      setMotores(-50, -50); // Dá ré reto
-      if (millis() - t_recuperacao > 350) {
+      setMotores(-50, -50); // Dá ré reto por 500ms
+      if (millis() - t_recuperacao > 500) {
           ctl = GIRANDO_BUSCA;
           t_recuperacao = millis();
       }
@@ -200,16 +206,24 @@ void loop() {
   }
 
   if (ctl == GIRANDO_BUSCA) {
-      // Gira no próprio eixo na direção escolhida
-      if (direcao_giro == 1) setMotores(-50, 50);  // Gira pra Esquerda
-      else setMotores(50, -50);                    // Gira pra Direita
-      
-      // Para de girar se o sensor Central (C) voltar a ver o preto OU se passar de 1.2s (segurança)
-      if (w[1] <= W_PRETO || (millis() - t_recuperacao > 1200)) {
-          ctl = RODANDO;
-          vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
-          t_sem_borda = millis();
-          Serial.println(F("Recuperado!"));
+      if (direcao_giro == 1) { 
+          setMotores(-45, 45);  // Gira pra Esquerda
+          // Para quando o sensor DIREITO (D) achar a linha
+          if (w[2] <= W_PRETO || (millis() - t_recuperacao > 1500)) {
+              ctl = RODANDO;
+              vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
+              t_sem_borda = millis();
+              Serial.println(F("Recuperado!"));
+          }
+      } else {
+          setMotores(45, -45);  // Gira pra Direita
+          // Para quando o sensor ESQUERDO (E) achar a linha
+          if (w[0] <= W_PRETO || (millis() - t_recuperacao > 1500)) {
+              ctl = RODANDO;
+              vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
+              t_sem_borda = millis();
+              Serial.println(F("Recuperado!"));
+          }
       }
       return;
   }
@@ -220,17 +234,14 @@ void loop() {
         ctl = RE_DANDO;
         t_recuperacao = millis();
         
-        // A MÁGICA ACONTECE AQUI:
-        // Se o sensor Esquerdo (E) está no preto e o Direito (D) no branco, ele girou pra direita e bateu.
-        // Então na hora de buscar, ele deve girar para a ESQUERDA (onde tem pista).
         if (w[0] < w[2]) {
-            direcao_giro = 1; // Vai buscar pela esquerda
+            direcao_giro = 1; // Buscar pela esquerda
         } else if (w[2] < w[0]) {
-            direcao_giro = -1; // Vai buscar pela direita
+            direcao_giro = -1; // Buscar pela direita
         } else {
-            // Se bateu de cara (ambos iguais), usa o histórico
             direcao_giro = (eAnt > 0) ? 1 : -1;
         }
+        Serial.println(F("BATEU!"));
         return;
     }
 
