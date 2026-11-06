@@ -14,28 +14,25 @@ const uint8_t LED_PLACA = 13;
 
 const int LIMIAR_MAO = 600; 
 
-// Posicao lateral
 const float POS_X[3] = { -19.2, 0.0, 19.2 };
 const float X_REF    = 19.2;
 float lado[3];
 
-// ---------- Interpretacao ----------
 const int16_t  W_BRANCO   = 650;
 const int16_t  W_PRETO    = 350;
 const uint16_t SPAN_MIN   = 60;
 const uint8_t  N_AMOSTRAS = 8;
 
-// ---------- CALIBRAÇÃO FIXA ----------
 uint16_t branco[3] = { 32, 28, 52 };
 uint16_t preto[3]  = { 340, 317, 239 };
 bool temBranco = true; 
 bool temPreto = true;
 
-// ---------- Controle (Velocidades mais altas) ----------
+// ---------- Controle ----------
 float kp = 40.0f;                      
 float kd = 1.5f;                       
-float V_RETA = 85.0f;                  // AUMENTADO (era 70)
-float V_CURVA = 45.0f;                 // AUMENTADO (era 35)
+float V_RETA = 85.0f;                  
+float V_CURVA = 45.0f;                 
 const float V_RAMPA = 120.0f;          
 const float ALFA_D = 0.3f;             
 const uint32_t PERIODO_US = 10000;     
@@ -92,26 +89,19 @@ Diag classifica() {
   }
 }
 
-// FUNÇÃO CORRIGIDA: Agora aceita velocidade NEGATIVA (para dar ré e girar)
 void setMotor(AF_DCMotor &m, float v, bool inverte, int offset) {
   if (v > 100.0f) v = 100.0f;
   if (v < -100.0f) v = -100.0f;
-  
   if (v == 0.0f) { m.setSpeed(0); m.run(RELEASE); return; }
   
-  // Pega o valor absoluto para o PWM
   float v_abs = (v > 0) ? v : -v;
   int pwm_final = (int)(v_abs * PWM_MAX / 100.0f) + offset;
-  
   if (pwm_final > 255) pwm_final = 255;
   if (pwm_final < 0) pwm_final = 0;
 
   m.setSpeed((uint8_t)pwm_final);
-  
-  // Define a direção baseada no sinal de v
   bool frente = (v > 0);
   if (inverte) frente = !frente;
-  
   m.run(frente ? FORWARD : BACKWARD);
 }
 
@@ -120,8 +110,8 @@ void setMotores(float vE, float vD) {
   setMotor(mDir, vD, INVERTE_DIR, OFFSET_DIR);
 }
 
-// ADICIONADO O ESTADO RECUPERANDO
-enum Ctl { PARADO, ARMADO, RODANDO, RECUPERANDO };
+// ESTADOS DO ROBO
+enum Ctl { PARADO, ARMADO, RODANDO, RE_DANDO, GIRANDO_BUSCA };
 Ctl ctl = PARADO;
 uint32_t tArma = 0, tInicio = 0, t_recuperacao = 0;
 float vb = 0, eAnt = 0, dFilt = 0;
@@ -130,6 +120,7 @@ bool ultValido = false;
 Diag ultDiag = D_DESCONHECIDO;
 uint32_t t_sem_borda = 0;
 float vAlvo = V_CURVA;
+int direcao_giro = 1; // 1 = esquerda, -1 = direita
 
 void setup() {
   Serial.begin(115200);
@@ -140,7 +131,6 @@ void setup() {
     digitalWrite(LED_PLACA, HIGH); delay(200);
     digitalWrite(LED_PLACA, LOW); delay(200);
   }
-  Serial.println(F("ROBO PRONTO. Passe a mao no A3."));
 }
 
 void loop() {
@@ -167,7 +157,6 @@ void loop() {
   float erro = 0;
   if (valido) for (uint8_t i = 0; i < 3; i++) erro += lado[i] * w[i];
   
-  // Proteção para não entrar na área interna
   if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR) {
       if (eAnt > 0) erro = 1000.0f;   
       else if (eAnt < 0) erro = -1000.0f; 
@@ -184,7 +173,6 @@ void loop() {
           ctl = ARMADO;
           tArma = millis();
           digitalWrite(LED_PLACA, HIGH); 
-          Serial.println(F("ARMADO! Tire a mao para ir."));
       } else {
           digitalWrite(LED_PLACA, !digitalRead(LED_PLACA));
           delay(50);
@@ -198,45 +186,57 @@ void loop() {
       digitalWrite(LED_PLACA, LOW); 
       vb = 0; eAnt = e; dFilt = 0; contParada = 0;
       t_sem_borda = millis();
-      Serial.println(F("LARGOU!"));
     }
   }
 
-  // LÓGICA NOVA: RECUPERAÇÃO FRONTAL (RÉ + GIRO)
-  if (ctl == RECUPERANDO) {
-      uint32_t tempo_decorrido = millis() - t_recuperacao;
-      
-      if (tempo_decorrido < 300) {
-          // Fase 1: Dá ré reto por 300ms
-          setMotores(-50, -50); 
-      } 
-      else if (tempo_decorrido < 600) {
-          // Fase 2: Gira para o lado oposto ao erro por 300ms
-          if (eAnt >= 0) setMotores(-40, 50); // Se estava indo pra direita, gira pra esquerda
-          else setMotores(50, -40);           // Se estava indo pra esquerda, gira pra direita
-      } 
-      else {
-          // Volta a andar
-          ctl = RODANDO;
-          eAnt = 0; dFilt = 0; vb = 0;
-          t_sem_borda = millis();
+  // --- LÓGICA DE RECUPERAÇÃO EM 2 FASES ---
+  if (ctl == RE_DANDO) {
+      setMotores(-50, -50); // Dá ré reto
+      if (millis() - t_recuperacao > 350) {
+          ctl = GIRANDO_BUSCA;
+          t_recuperacao = millis();
       }
-      return; // Impede que o código execute o PD enquanto recupera
+      return; 
   }
 
+  if (ctl == GIRANDO_BUSCA) {
+      // Gira no próprio eixo na direção escolhida
+      if (direcao_giro == 1) setMotores(-50, 50);  // Gira pra Esquerda
+      else setMotores(50, -50);                    // Gira pra Direita
+      
+      // Para de girar se o sensor Central (C) voltar a ver o preto OU se passar de 1.2s (segurança)
+      if (w[1] <= W_PRETO || (millis() - t_recuperacao > 1200)) {
+          ctl = RODANDO;
+          vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
+          t_sem_borda = millis();
+          Serial.println(F("Recuperado!"));
+      }
+      return;
+  }
+
+  // --- MODO DE CORRIDA NORMAL ---
   if (ctl == RODANDO) {
-    // Detecta batida frontal
     if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR) {
-        ctl = RECUPERANDO;
+        ctl = RE_DANDO;
         t_recuperacao = millis();
-        Serial.println(F("BATEU DE FRENTE! Dando ré..."));
+        
+        // A MÁGICA ACONTECE AQUI:
+        // Se o sensor Esquerdo (E) está no preto e o Direito (D) no branco, ele girou pra direita e bateu.
+        // Então na hora de buscar, ele deve girar para a ESQUERDA (onde tem pista).
+        if (w[0] < w[2]) {
+            direcao_giro = 1; // Vai buscar pela esquerda
+        } else if (w[2] < w[0]) {
+            direcao_giro = -1; // Vai buscar pela direita
+        } else {
+            // Se bateu de cara (ambos iguais), usa o histórico
+            direcao_giro = (eAnt > 0) ? 1 : -1;
+        }
         return;
     }
 
     bool parada = !valido || d == D_DESCONHECIDO || d == D_FORA;
     contParada = parada ? contParada + 1 : 0;
 
-    // Removido o limite de tempo (T_MAX_MS)
     if (contParada >= N_PARADA) {
       setMotores(0, 0);
       ctl = PARADO;
@@ -261,10 +261,7 @@ void loop() {
           if (vb < vAlvo) vb = vAlvo;
       }
 
-      // Agora permite valores negativos caso o PD exija uma curva muito fechada
       float vE = vb - u, vD = vb + u;
-      
-      // Limita a -100 e 100 (não usa mais if(vE < 0) vE = 0)
       if (vE < -100.0f) vE = -100.0f;
       if (vE > 100.0f) vE = 100.0f;
       if (vD < -100.0f) vD = -100.0f;
