@@ -3,25 +3,31 @@
 // Geometria: valores NOMINAIS do modelo chassi_n20_v8.scad.
 // Origem = ponto medio do eixo das rodas. +X = direita, +Y = frente (mm).
 // Centro optico de cada TCRT5000, olhando reto para baixo (7 mm do chao).
-// Sensores de pista: indice 0 = E (A4), 1 = C (A1), 2 = D (A5).
+// Sensores de pista: indice 0 = E (A4), 1 = C, 2 = D (A5). Pino do C: ver PIN_C.
 //
 // Polaridade (medida pelo usuario): PRETO = valor ALTO, BRANCO = valor BAIXO.
 // Pista: robo anda sobre o PRETO; o BRANCO e a borda (limite).
 
-const uint8_t PINOS[3] = { A4, A1, A5 };
+// O teste do usuario em 06/11 leu o central em A0 (nas etapas 2 e 3 era A1).
+// Se o modulo voltar ao A1, troque so PIN_C.
+const uint8_t PIN_E = A4;
+const uint8_t PIN_C = A0;
+const uint8_t PIN_D = A5;
+const uint8_t PINOS[3] = { PIN_E, PIN_C, PIN_D };
 const char    NOMES[3] = { 'E', 'C', 'D' };
 
 const float POS_X[3] = { -19.2, 0.0, 19.2 };
 const float POS_Y[3] = {  39.5, 57.7, 39.5 };
 const float X_REF    = 19.2;   // braco lateral dos sensores E/D, normaliza LADO para -1 / 0 / +1
 
-// Limiares ja validados na etapa 2 (histerese em valor bruto)
-const uint16_t LIM_PRETO  = 150;   // acima: preto
-const uint16_t LIM_BRANCO = 120;   // abaixo: branco
+// Classificacao P/B por sensor, pela brancura calibrada (0..1000). A faixa bruta de cada sensor muda
+// com a superficie (a lona reduz o contraste), entao limiares fixos em valor bruto deixam de valer.
+const int16_t W_BRANCO = 650;   // brancura >= 650: branco
+const int16_t W_PRETO  = 350;   // brancura <= 350: preto. Entre os dois, mantem o estado (histerese)
 
 const uint8_t  N_AMOSTRAS = 8;
 const uint16_t PERIODO_MS = 50;
-const uint16_t SPAN_MIN   = 150;   // separacao minima preto-branco para normalizar
+const uint16_t SPAN_MIN   = 60;    // separacao minima preto-branco para normalizar (ruido medido: +-1)
 
 uint16_t branco[3], preto[3];
 bool temBranco = false, temPreto = false;
@@ -54,9 +60,11 @@ void mostraConstantes() {
   Serial.print(preto[0]); Serial.print(F(", ")); Serial.print(preto[1]); Serial.print(F(", ")); Serial.print(preto[2]);
   Serial.println(F(" };"));
   for (uint8_t i = 0; i < 3; i++) {
-    if ((int16_t)preto[i] - (int16_t)branco[i] < (int16_t)SPAN_MIN) {
+    int16_t span = (int16_t)preto[i] - (int16_t)branco[i];
+    Serial.print(F("separacao ")); Serial.print(NOMES[i]); Serial.print('='); Serial.println(span);
+    if (span < (int16_t)SPAN_MIN) {
       Serial.print(F("AVISO: sensor ")); Serial.print(NOMES[i]);
-      Serial.println(F(" com separacao < 150: sem normalizacao"));
+      Serial.println(F(" com separacao baixa: sem normalizacao"));
     }
   }
 }
@@ -72,9 +80,10 @@ int16_t brancura(uint8_t i, uint16_t v) {
   return (int16_t)(1000 - n);
 }
 
-void atualizaEstado(uint8_t i, uint16_t v) {
-  if (v > LIM_PRETO)       estado[i] = 1;
-  else if (v < LIM_BRANCO) estado[i] = 0;
+void atualizaEstado(uint8_t i, int16_t w) {
+  if (w < 0) { estado[i] = 255; return; }   // sem calibracao valida: desconhecido (modo conservador)
+  if (w >= W_BRANCO)     estado[i] = 0;
+  else if (w <= W_PRETO) estado[i] = 1;
   // entre os limiares: mantem o estado anterior
 }
 
@@ -130,8 +139,8 @@ void loop() {
   bool valido = true;
   for (uint8_t i = 0; i < 3; i++) {
     uint16_t v = leSensor(PINOS[i]);
-    atualizaEstado(i, v);
     w[i] = brancura(i, v);
+    atualizaEstado(i, w[i]);
     if (w[i] < 0) valido = false;
   }
 
