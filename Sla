@@ -1,0 +1,23 @@
+// TESTE CRU DOS SENSORES TCRT5000
+const int PIN_E = A4;
+const int PIN_C = A1;
+const int PIN_D = A5;
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("--- TESTE CRU DE SENSORES ---");
+  Serial.println("Coloque no BRANCO, anote os valores. Coloque no PRETO, anote os valores.");
+}
+
+void loop() {
+  // Lê o pino duas vezes. A primeira descarta para assentar o multiplexador do Arduino.
+  analogRead(PIN_E); int val_e = analogRead(PIN_E);
+  analogRead(PIN_C); int val_c = analogRead(PIN_C);
+  analogRead(PIN_D); int val_d = analogRead(PIN_D);
+
+  Serial.print("E: "); Serial.print(val_e);
+  Serial.print(" \t| C: "); Serial.print(val_c);
+  Serial.print(" \t| D: "); Serial.println(val_d);
+
+  delay(200); // Lê 5 vezes por segundo para dar tempo de você ver na tela
+}
