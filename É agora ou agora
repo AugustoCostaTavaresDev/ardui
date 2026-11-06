@@ -14,7 +14,6 @@ const char    NOMES[3] = { 'E', 'C', 'D' };
 const uint8_t LED_PLACA = 13;
 
 // O TCRT5000 no A3 vai ler ALTO quando você colocar a mão perto.
-// Se for um botão, ele lê BAIXO. O padrão abaixo é para sensor óptico (mão).
 const int LIMIAR_MAO = 600; 
 
 // Posicao lateral de cada sensor (mm)
@@ -29,7 +28,6 @@ const uint16_t SPAN_MIN   = 60;
 const uint8_t  N_AMOSTRAS = 8;
 
 // ---------- CALIBRAÇÃO FIXA (Hardcoded) ----------
-// Valores medidos na sua pista!
 uint16_t branco[3] = { 32, 28, 52 };
 uint16_t preto[3]  = { 340, 317, 239 };
 bool temBranco = true; 
@@ -98,20 +96,6 @@ Diag classifica() {
   }
 }
 
-const __FlashStringHelper* nomeDiag(Diag d) {
-  switch (d) {
-    case D_DESCONHECIDO:  return F("DESCONHECIDO");
-    case D_OK:            return F("OK");
-    case D_BORDA_ESQ:     return F("BORDA_ESQ");
-    case D_BORDA_DIR:     return F("BORDA_DIR");
-    case D_FRONTAL:       return F("FRONTAL");
-    case D_FRONTAL_ESQ:   return F("FRONTAL_ESQ");
-    case D_FRONTAL_DIR:   return F("FRONTAL_DIR");
-    case D_INCONSISTENTE: return F("INCONSISTENTE");
-    default:              return F("FORA");
-  }
-}
-
 void setMotor(AF_DCMotor &m, float v, bool inverte, int offset) {
   if (v > 100.0f) v = 100.0f;
   if (v <= 0.0f) { m.setSpeed(0); m.run(RELEASE); return; }
@@ -133,7 +117,7 @@ enum Ctl { PARADO, ARMADO, RODANDO };
 Ctl ctl = PARADO;
 uint32_t tArma = 0, tInicio = 0;
 float vb = 0, eAnt = 0, dFilt = 0;
-uint8_t contParada = 0, cicloLog = 0;
+uint8_t contParada = 0;
 bool ultValido = false;
 Diag ultDiag = D_DESCONHECIDO;
 
@@ -157,7 +141,7 @@ void setup() {
 }
 
 void loop() {
-  // Leitura do sensor de mão (A3) - Verifica se a mão está lá (sensor lê alto)
+  // Leitura do sensor de mão (A3)
   int leitura_mao = analogRead(PIN_START);
   bool mao_presente = (leitura_mao > LIMIAR_MAO); 
 
@@ -182,7 +166,7 @@ void loop() {
   float erro = 0;
   if (valido) for (uint8_t i = 0; i < 3; i++) erro += lado[i] * w[i];
   
-  // --- PROTEÇÃO CONTRA ENTRAR NA ÁREA INTERNA (Infield) ---
+  // --- PROTEÇÃO CONTRA ENTRAR NA ÁREA INTERNA ---
   if (d == D_FRONTAL || d == D_FRONTAL_ESQ || d == D_FRONTAL_DIR) {
       if (eAnt > 0) erro = 1000.0f;   
       else if (eAnt < 0) erro = -1000.0f; 
@@ -213,7 +197,8 @@ void loop() {
       tInicio = millis();
       digitalWrite(LED_PLACA, LOW); // LED apagado = Rodando
       
-      vb = 0; eAnt = e; dFilt = 0; contParada = 0; cicloLog = 0; atrasos = 0;
+      // Variáveis de controle resetadas (sem variáveis de debug)
+      vb = 0; eAnt = e; dFilt = 0; contParada = 0;
       t_sem_borda = millis();
       Serial.println(F("LARGOU!"));
     }
@@ -226,6 +211,7 @@ void loop() {
     if (contParada >= N_PARADA || (millis() - tInicio > T_MAX_MS)) {
       setMotores(0, 0);
       ctl = PARADO;
+      digitalWrite(LED_PLACA, HIGH); // Acende LED se parar
       Serial.println(F("PAROU."));
     } else {
       // --- Lógica de Velocidade Dinâmica (Reta vs Curva) ---
