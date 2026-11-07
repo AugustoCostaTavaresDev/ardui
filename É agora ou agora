@@ -44,7 +44,14 @@ const uint8_t PWM_MAX     = 200;
 const bool    INVERTE_ESQ = false;
 const bool    INVERTE_DIR = false;
 int OFFSET_ESQ = 30; 
-int OFFSET_DIR = 30; 
+int OFFSET_DIR = 30;
+
+// ---- recuperacao: giro no proprio eixo ----
+// #define TESTE_GIRO   // descomente para medir T_GIRO_90_MS: gira no eixo a cada 3 s, sem sensores
+const float    V_GIRO         = 60.0f;  // giro no eixo: uma roda +V_GIRO, a outra -V_GIRO
+uint16_t       T_GIRO_90_MS   = 250;    // tempo para ~90 graus no eixo. MEDIR no chao e ajustar
+const uint16_t T_REPETE_MS    = 2500;   // nova recuperacao dentro deste prazo = o lado tentado estava errado
+int            SENTIDO_PADRAO = 1;      // lado preferido sem borda lateral recente: 1 = esquerda, -1 = direita 
 
 AF_DCMotor mEsq(4, MOTOR34_1KHZ);
 AF_DCMotor mDir(2, MOTOR12_1KHZ);
@@ -131,7 +138,12 @@ Diag ultDiag = D_DESCONHECIDO;
 uint32_t t_sem_borda = 0;
 float vAlvo = V_CURVA;
 
-int direcao_giro = 1; 
+int direcao_giro = 1;
+int ultima_dir = 1;
+uint8_t fase_giro = 0;
+bool giro_repetido = false;
+float eMem = 0;                // memoria do lado da borda (decai em ~0,5 s)
+uint32_t t_fim_rec = 0; 
 
 void setup() {
   Serial.begin(115200);
@@ -149,6 +161,9 @@ void setup() {
 }
 
 void loop() {
+#ifdef TESTE_GIRO
+  delay(3000); setMotores(-V_GIRO, V_GIRO); delay(T_GIRO_90_MS); setMotores(0, 0); return;
+#endif
   int leitura_mao = analogRead(PIN_START);
   bool mao_presente = (leitura_mao > LIMIAR_MAO); 
 
@@ -222,20 +237,22 @@ void loop() {
   }
 
   if (ctl == GIRANDO_BUSCA) {
-      if (direcao_giro == 1) { 
-          setMotores(15, 90);  
-          if ((w[1] <= W_PRETO && w[2] <= W_PRETO) || (millis() - t_recuperacao > 1500)) {
-              ctl = RODANDO;
-              vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
-              t_sem_borda = millis();
-          }
-      } else {
-          setMotores(90, 15);  
-          if ((w[1] <= W_PRETO && w[0] <= W_PRETO) || (millis() - t_recuperacao > 1500)) {
-              ctl = RODANDO;
-              vb = 0; eAnt = 0; dFilt = 0; contParada = 0;
-              t_sem_borda = millis();
-          }
+      uint32_t tg = millis() - t_recuperacao;
+      uint32_t alvo = (fase_giro == 0 && !giro_repetido) ? (uint32_t)T_GIRO_90_MS : 2UL * T_GIRO_90_MS;
+      int dir = (fase_giro == 0) ? direcao_giro : -direcao_giro;
+      if (tg < alvo) {
+          if (dir == 1) setMotores(-V_GIRO, V_GIRO); else setMotores(V_GIRO, -V_GIRO);   // no eixo
+      } else if (d == D_OK) {                                  // girou o minimo e a frente esta livre
+          setMotores(0, 0);
+          ctl = RODANDO;
+          vb = 0; eAnt = 0; eMem = 0; dFilt = 0; contParada = 0;
+          t_sem_borda = millis(); t_fim_rec = millis();
+      } else if (fase_giro == 0) {                             // bloqueado: tenta o outro lado (180 graus)
+          fase_giro = 1; t_recuperacao = millis();
+      } else {                                                 // nenhum lado livre: conservador
+          setMotores(0, 0);
+          ctl = PARADO;
+          digitalWrite(LED_PLACA, HIGH);
       }
       return;
   }
@@ -247,9 +264,10 @@ void loop() {
         ctl = RE_DANDO;
         t_recuperacao = millis();
         
-        if (eAnt > 0.05f) direcao_giro = 1;  
-        else if (eAnt < -0.05f) direcao_giro = -1; 
-        else direcao_giro = 1; 
+        int dir = (eMem > 0.08f) ? 1 : ((eMem < -0.08f) ? -1 : SENTIDO_PADRAO);   // vira para longe da borda vista
+        giro_repetido = (t_fim_rec != 0 && millis() - t_fim_rec < T_REPETE_MS);
+        if (giro_repetido) dir = -ultima_dir;                                   // repetiu logo: era o lado errado
+        direcao_giro = dir; ultima_dir = dir; fase_giro = 0; 
         
         return;
     }
@@ -269,6 +287,7 @@ void loop() {
 
       float de = (e - eAnt) / dt;
       eAnt = e;
+      eMem += 0.02f * (e - eMem);
       dFilt += ALFA_D * (de - dFilt);
       float u = kp * e + kd * dFilt;
       
@@ -281,6 +300,11 @@ void loop() {
       }
 
       float vE = vb - u, vD = vb + u;
+      // saturacao: preserva a DIFERENCA entre as rodas (a direcao) e sacrifica a velocidade media
+      float exc = vD - 100.0f;  if (exc > 0) { vD -= exc; vE -= exc; }
+      exc = vE - 100.0f;        if (exc > 0) { vE -= exc; vD -= exc; }
+      exc = -100.0f - vE;       if (exc > 0) { vE += exc; vD += exc; }
+      exc = -100.0f - vD;       if (exc > 0) { vD += exc; vE += exc; }
       if (vE < -100.0f) vE = -100.0f;
       if (vE > 100.0f) vE = 100.0f;
       if (vD < -100.0f) vD = -100.0f;
