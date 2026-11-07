@@ -32,9 +32,9 @@ const float    ALFA_D     = 0.3;     // filtro da derivada
 const float    ALVO       = 0.5;     // meio da fita (mude p/ ~0,4 se a roda tocar a fita)
 const uint32_t PERIODO_US = 10000;   // laço de 10 ms
 
-enum { SE, SC, SD };                 // índices dos sensores
-const uint8_t SEG = (LADO_SEGUE == ESQUERDA) ? SE : SD;  // sensor que segue a borda
-const uint8_t OPO = (LADO_SEGUE == ESQUERDA) ? SD : SE;  // sensor do lado oposto
+enum { S_ESQ, S_CEN, S_DIR };                 // índices dos sensores
+const uint8_t SEG = (LADO_SEGUE == ESQUERDA) ? S_ESQ : S_DIR;  // sensor que segue a borda
+const uint8_t OPO = (LADO_SEGUE == ESQUERDA) ? S_DIR : S_ESQ;  // sensor do lado oposto
 
 AF_DCMotor mEsq(4, MOTOR34_1KHZ);
 AF_DCMotor mDir(2, MOTOR12_1KHZ);
@@ -96,10 +96,11 @@ void motoresLado(float vs, float vo) {
 
 #ifdef DEBUG
 void imprime() {
-  Serial.print(F("raw "));  Serial.print(raw[SE]); Serial.print(' ');
-  Serial.print(raw[SC]);    Serial.print(' ');     Serial.print(raw[SD]);
-  Serial.print(F(" b "));   Serial.print(b[SE], 2); Serial.print(' ');
-  Serial.print(b[SC], 2);   Serial.print(' ');     Serial.print(b[SD], 2);
+  Serial.print(F("a3 "));   Serial.print(analogRead(PIN_MAO)); Serial.print(' ');
+  Serial.print(F("raw "));  Serial.print(raw[S_ESQ]); Serial.print(' ');
+  Serial.print(raw[S_CEN]);    Serial.print(' ');     Serial.print(raw[S_DIR]);
+  Serial.print(F(" b "));   Serial.print(b[S_ESQ], 2); Serial.print(' ');
+  Serial.print(b[S_CEN], 2);   Serial.print(' ');     Serial.print(b[S_DIR], 2);
   Serial.print(F(" est ")); Serial.print(estado);
   Serial.print(F(" f "));   Serial.print(f);
   Serial.print(F(" e "));   Serial.print(e, 2);
@@ -149,7 +150,7 @@ void loop() {
 
   } else {
     // ---- correndo ----
-    float bs = b[SEG], bo = b[OPO], bc = b[SC];
+    float bs = b[SEG], bo = b[OPO], bc = b[S_CEN];
     e = (bs - ALVO) * 2.0;                         // -1..+1; positivo = perto demais da fita
 
     // Manobra forte (sem tempo): só termina quando o sensor deixa de ver branco forte.
